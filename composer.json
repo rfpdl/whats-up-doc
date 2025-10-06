@@ -1,0 +1,45 @@
+{
+    "name": "rfpdl/whats-up-doc",
+    "description": "Generate beautiful API documentation from Laravel Data DTOs",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Roy",
+            "email": "roy@rfpdl.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "laravel/framework": "^10.0|^11.0",
+        "spatie/laravel-data": "^3.0|^4.0",
+        "illuminate/support": "^10.0|^11.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0",
+        "pestphp/pest": "^2.0",
+        "pestphp/pest-plugin-laravel": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Rfpdl\\LaravelDataDoc\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Rfpdl\\LaravelDataDoc\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Rfpdl\\LaravelDataDoc\\LaravelDataDocServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "vendor/bin/pest"
+    }
+}
