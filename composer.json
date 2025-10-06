@@ -22,18 +22,18 @@
     },
     "autoload": {
         "psr-4": {
-            "Rfpdl\\LaravelDataDoc\\": "src/"
+            "Rfpdl\\WhatsUpDoc\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Rfpdl\\LaravelDataDoc\\Tests\\": "tests/"
+            "Rfpdl\\WhatsUpDoc\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Rfpdl\\LaravelDataDoc\\LaravelDataDocServiceProvider"
+                "Rfpdl\\WhatsUpDoc\\WhatsUpDocServiceProvider"
             ]
         }
     },

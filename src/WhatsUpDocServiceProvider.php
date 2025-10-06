@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Rfpdl\LaravelDataDoc;
+namespace Rfpdl\WhatsUpDoc;
 
 use Illuminate\Support\ServiceProvider;
-use Rfpdl\LaravelDataDoc\Commands\GenerateDocsCommand;
-use Rfpdl\LaravelDataDoc\Services\RouteScanner;
+use Rfpdl\WhatsUpDoc\Commands\GenerateDocsCommand;
+use Rfpdl\WhatsUpDoc\Services\RouteScanner;
 
-class LaravelDataDocServiceProvider extends ServiceProvider
+class WhatsUpDocServiceProvider extends ServiceProvider
 {
     public function register(): void
     {

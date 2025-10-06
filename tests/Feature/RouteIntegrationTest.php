@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Rfpdl\LaravelDataDoc\Tests\Feature;
+namespace Rfpdl\WhatsUpDoc\Tests\Feature;
 
 use Orchestra\Testbench\TestCase;
-use Rfpdl\LaravelDataDoc\LaravelDataDocServiceProvider;
-use Rfpdl\LaravelDataDoc\Services\RouteScanner;
+use Rfpdl\WhatsUpDoc\WhatsUpDocServiceProvider;
+use Rfpdl\WhatsUpDoc\Services\RouteScanner;
 use Illuminate\Support\Facades\Route;
 use Spatie\LaravelData\Data;
 
@@ -24,7 +24,7 @@ class RouteIntegrationTest extends TestCase
     protected function getPackageProviders($app): array
     {
         return [
-            LaravelDataDocServiceProvider::class,
+            WhatsUpDocServiceProvider::class,
         ];
     }
 
