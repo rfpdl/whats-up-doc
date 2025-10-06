@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Rfpdl\LaravelDataDoc\Services;
+namespace Rfpdl\WhatsUpDoc\Services;
 
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;

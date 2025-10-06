@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Rfpdl\LaravelDataDoc\Services;
+namespace Rfpdl\WhatsUpDoc\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\View;
 use ReflectionClass;
 use ReflectionProperty;
-use Rfpdl\LaravelDataDoc\Services\RouteScanner;
+use Rfpdl\WhatsUpDoc\Services\RouteScanner;
 
 class DocumentationGenerator
 {

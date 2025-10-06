@@ -39,7 +39,7 @@ php artisan data-doc:generate --output=/path/to/docs
 Publish the configuration file:
 
 ```bash
-php artisan vendor:publish --provider="Rfpdl\LaravelDataDoc\LaravelDataDocServiceProvider" --tag="config"
+php artisan vendor:publish --provider="Rfpdl\WhatsUpDoc\WhatsUpDocServiceProvider" --tag="config"
 ```
 
 ### Configuration Options

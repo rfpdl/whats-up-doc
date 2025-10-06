@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Rfpdl\LaravelDataDoc\Commands;
+namespace Rfpdl\WhatsUpDoc\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
-use Rfpdl\LaravelDataDoc\Services\DataClassScanner;
-use Rfpdl\LaravelDataDoc\Services\DocumentationGenerator;
+use Rfpdl\WhatsUpDoc\Services\DataClassScanner;
+use Rfpdl\WhatsUpDoc\Services\DocumentationGenerator;
 
 class GenerateDocsCommand extends Command
 {
