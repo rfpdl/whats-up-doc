@@ -43,7 +43,7 @@
                                     <h4 class="text-sm font-medium text-gray-700 mb-2">API Endpoints</h4>
                                     <div class="space-y-1">
                                         @foreach($routes as $route)
-                                            <a href="#route-{{ md5($route['uri']) }}" 
+                                            <a href="#route-{{ md5($route['uri']) }}"
                                                class="block px-3 py-2 text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
                                                 <span class="font-mono">{{ strtoupper(implode('|', array_diff($route['methods'], ['HEAD']))) }}</span>
                                                 <span class="ml-1">{{ $route['uri'] }}</span>
@@ -52,14 +52,17 @@
                                     </div>
                                 </div>
                             @endif
-                            
+
                             <div>
                                 <h4 class="text-sm font-medium text-gray-700 mb-2">Data Classes</h4>
                                 <div class="space-y-1">
                                     @foreach($documentation as $className => $data)
-                                        <a href="#{{ $data['name'] }}" 
+                                        <a href="#{{ $data['name'] }}"
                                            class="block px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
                                             {{ $data['name'] }}
+                                            @if(!empty($data['deprecated']))
+                                                <span class="text-xs text-red-500 ml-1">(deprecated)</span>
+                                            @endif
                                         </a>
                                     @endforeach
                                 </div>
@@ -97,7 +100,7 @@
                                                     <code class="text-lg font-mono">{{ $route['uri'] }}</code>
                                                 </div>
                                             </div>
-                                            
+
                                             @if($route['description'])
                                                 <p class="text-gray-600 mb-3">{{ $route['description'] }}</p>
                                             @endif
@@ -150,8 +153,17 @@
                         <div id="{{ $data['name'] }}" class="bg-white rounded-lg shadow-md mb-8 overflow-hidden">
                             <!-- Class Header -->
                             <div class="primary-bg text-white px-6 py-4">
-                                <h2 class="text-2xl font-bold">{{ $data['name'] }}</h2>
-                                <p class="text-blue-100 text-sm mt-1">{{ $data['namespace'] }}</p>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <h2 class="text-2xl font-bold">
+                                            {{ $data['name'] }}
+                                            @if(!empty($data['deprecated']))
+                                                <span class="text-sm bg-red-500 text-white px-2 py-1 rounded ml-2">Deprecated</span>
+                                            @endif
+                                        </h2>
+                                        <p class="text-blue-100 text-sm mt-1">{{ $data['namespace'] }}</p>
+                                    </div>
+                                </div>
                                 @if($data['description'])
                                     <p class="text-blue-100 mt-2">{{ $data['description'] }}</p>
                                 @endif
@@ -167,7 +179,7 @@
                                                 <tr>
                                                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Name</th>
                                                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Type</th>
-                                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Nullable</th>
+                                                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Required</th>
                                                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Description</th>
                                                 </tr>
                                             </thead>
@@ -175,22 +187,50 @@
                                                 @foreach($data['properties'] as $property)
                                                     <tr class="hover:bg-gray-50">
                                                         <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                                                            {{ $property['name'] }}
+                                                            <code>{{ $property['name'] }}</code>
+                                                            @if(!empty($property['deprecated']))
+                                                                <span class="text-xs text-red-500 ml-1">(deprecated)</span>
+                                                            @endif
                                                         </td>
                                                         <td class="px-4 py-3 text-sm">
                                                             <code class="bg-gray-100 px-2 py-1 rounded text-xs">
-                                                                {{ $property['type'] }}
+                                                                {{ $property['type']['name'] ?? 'mixed' }}
                                                             </code>
+                                                            @if(!empty($property['type']['isEnum']) && !empty($property['type']['enumValues']))
+                                                                <div class="mt-1 text-xs text-gray-500">
+                                                                    Values: {{ implode(', ', array_slice($property['type']['enumValues'], 0, 5)) }}
+                                                                    @if(count($property['type']['enumValues']) > 5)
+                                                                        <span class="text-gray-400">+{{ count($property['type']['enumValues']) - 5 }} more</span>
+                                                                    @endif
+                                                                </div>
+                                                            @endif
+                                                            @if(!empty($property['type']['isDataClass']))
+                                                                <a href="#{{ $property['type']['name'] }}" class="text-blue-600 hover:text-blue-800 text-xs block mt-1">View Details</a>
+                                                            @endif
                                                         </td>
                                                         <td class="px-4 py-3 text-sm">
-                                                            @if($property['nullable'])
-                                                                <span class="text-yellow-600">Yes</span>
+                                                            @if(!($property['type']['nullable'] ?? false) && !($property['hasDefault'] ?? false))
+                                                                <span class="text-red-600 font-medium">Required</span>
                                                             @else
-                                                                <span class="text-green-600">No</span>
+                                                                <span class="text-gray-500">Optional</span>
                                                             @endif
                                                         </td>
                                                         <td class="px-4 py-3 text-sm text-gray-600">
                                                             {{ $property['description'] ?: 'No description' }}
+                                                            @if(!empty($property['validation']))
+                                                                <div class="mt-1 space-x-1">
+                                                                    @foreach($property['validation'] as $rule)
+                                                                        <span class="inline-block bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded">
+                                                                            {{ $rule['description'] ?? $rule['name'] }}
+                                                                        </span>
+                                                                    @endforeach
+                                                                </div>
+                                                            @endif
+                                                            @if($property['hasDefault'] ?? false)
+                                                                <div class="mt-1 text-xs text-gray-500">
+                                                                    Default: <code class="bg-gray-100 px-1 rounded">{{ json_encode($property['default']) }}</code>
+                                                                </div>
+                                                            @endif
                                                         </td>
                                                     </tr>
                                                 @endforeach

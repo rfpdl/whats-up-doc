@@ -7,21 +7,41 @@ namespace Rfpdl\WhatsUpDoc\Services;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\App;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionMethod;
-use ReflectionParameter;
-use Spatie\LaravelData\Data;
+use Rfpdl\WhatsUpDoc\Support\DocblockParser;
+use Rfpdl\WhatsUpDoc\Support\ErrorCollector;
+use Rfpdl\WhatsUpDoc\Support\ScanError;
+use Rfpdl\WhatsUpDoc\Support\TypeResolver;
 
 class RouteScanner
 {
-    public function __construct(
-        private Router $router
-    ) {}
+    private ErrorCollector $errors;
 
+    public function __construct(
+        private readonly Router $router,
+        private readonly DocblockParser $docblockParser,
+        private readonly TypeResolver $typeResolver,
+    ) {
+        $this->errors = new ErrorCollector();
+    }
+
+    /**
+     * Get errors from the last scan
+     */
+    public function getErrors(): ErrorCollector
+    {
+        return $this->errors;
+    }
+
+    /**
+     * Scan routes for Laravel Data class usage
+     */
     public function scanRoutes(Collection $dataClasses): Collection
     {
-        // Check if route documentation is enabled
+        $this->errors->clear();
+
         if (!config('whats-up-doc.routes.enabled', true)) {
             return collect();
         }
@@ -35,154 +55,265 @@ class RouteScanner
                 continue;
             }
 
-            $routeData = $this->analyzeRoute($route, $dataClassNames);
-            
-            if ($routeData) {
-                $routes->push($routeData);
+            try {
+                $routeData = $this->analyzeRoute($route, $dataClassNames);
+
+                if ($routeData !== null) {
+                    $routes->push($routeData);
+                }
+            } catch (\Throwable $e) {
+                $this->errors->add(ScanError::routeAnalysisFailed($route->uri(), $e));
             }
+        }
+
+        // Group by prefix if configured
+        if (config('whats-up-doc.routes.group_by_prefix', true)) {
+            return $routes->sortBy('uri')->groupBy(function ($route) {
+                $segments = explode('/', $route['uri']);
+                return $segments[0] ?? 'other';
+            })->flatten(1);
         }
 
         return $routes->sortBy('uri');
     }
 
+    /**
+     * Determine if a route should be included in documentation
+     */
     private function shouldIncludeRoute(Route $route, array $routePrefixes): bool
     {
         $uri = $route->uri();
-        
-        // Skip routes without prefixes if prefixes are specified
+
+        // Check prefixes efficiently using Str::startsWith
         if (!empty($routePrefixes)) {
-            $hasValidPrefix = false;
-            foreach ($routePrefixes as $prefix) {
-                if (str_starts_with($uri, $prefix)) {
-                    $hasValidPrefix = true;
-                    break;
-                }
-            }
+            $hasValidPrefix = Str::startsWith($uri, $routePrefixes);
             if (!$hasValidPrefix) {
                 return false;
             }
         }
 
-        // Skip closure routes
-        if (!is_string($route->getActionName())) {
+        // Skip closure routes (can't reflect them)
+        $action = $route->getActionName();
+        if (!is_string($action) || $action === 'Closure') {
+            return false;
+        }
+
+        // Must have a controller
+        if (!isset($route->getAction()['controller'])) {
             return false;
         }
 
         return true;
     }
 
+    /**
+     * Analyze a single route for Data class usage
+     */
     private function analyzeRoute(Route $route, array $dataClassNames): ?array
     {
         $action = $route->getAction();
-        
-        if (!isset($action['controller'])) {
+        $controllerAction = $action['controller'];
+
+        // Handle different controller action formats
+        if (!str_contains($controllerAction, '@')) {
+            // Invokable controller
+            $controllerClass = $controllerAction;
+            $method = '__invoke';
+        } else {
+            [$controllerClass, $method] = explode('@', $controllerAction);
+        }
+
+        if (!class_exists($controllerClass)) {
             return null;
         }
 
-        [$controllerClass, $method] = explode('@', $action['controller']);
+        $controllerReflection = new ReflectionClass($controllerClass);
 
-        try {
-            $controllerReflection = new ReflectionClass($controllerClass);
-            $methodReflection = $controllerReflection->getMethod($method);
-            
-            $routeInfo = [
-                'uri' => $route->uri(),
-                'methods' => $route->methods(),
-                'name' => $route->getName(),
-                'controller' => $controllerClass,
-                'action' => $method,
-                'parameters' => $this->getRouteParameters($route),
-                'request_data' => null,
-                'response_data' => null,
-                'description' => $this->getMethodDescription($methodReflection),
-            ];
-
-            // Analyze method parameters for request Data classes
-            foreach ($methodReflection->getParameters() as $parameter) {
-                $parameterType = $parameter->getType();
-                if ($parameterType && !$parameterType->isBuiltin()) {
-                    $typeName = $parameterType->getName();
-                    if (in_array($typeName, $dataClassNames)) {
-                        $routeInfo['request_data'] = $typeName;
-                        break;
-                    }
-                }
-            }
-
-            // Analyze return type for response Data classes
-            $returnType = $methodReflection->getReturnType();
-            if ($returnType && !$returnType->isBuiltin()) {
-                $returnTypeName = $returnType->getName();
-                if (in_array($returnTypeName, $dataClassNames)) {
-                    $routeInfo['response_data'] = $returnTypeName;
-                }
-            }
-
-            // Only include routes that use Laravel Data classes
-            if ($routeInfo['request_data'] || $routeInfo['response_data']) {
-                return $routeInfo;
-            }
-
-        } catch (\Throwable $e) {
-            // Skip routes that can't be analyzed
+        if (!$controllerReflection->hasMethod($method)) {
             return null;
+        }
+
+        $methodReflection = $controllerReflection->getMethod($method);
+
+        // Build basic route info
+        $routeInfo = [
+            'uri' => $route->uri(),
+            'methods' => $this->filterMethods($route->methods()),
+            'name' => $route->getName(),
+            'controller' => $controllerClass,
+            'action' => $method,
+            'parameters' => $this->extractRouteParameters($route, $methodReflection),
+            'request_data' => null,
+            'response_data' => null,
+            'description' => $this->extractMethodDescription($methodReflection),
+            'middleware' => config('whats-up-doc.routes.include_middleware', false)
+                ? $route->middleware()
+                : [],
+        ];
+
+        // Find request Data class (from method parameters)
+        $requestData = $this->findRequestDataClass($methodReflection, $dataClassNames);
+        if ($requestData) {
+            $routeInfo['request_data'] = $requestData;
+        }
+
+        // Find response Data class (from return type)
+        $responseData = $this->findResponseDataClass($methodReflection, $dataClassNames);
+        if ($responseData) {
+            $routeInfo['response_data'] = $responseData;
+        }
+
+        // Only include routes that use Laravel Data classes
+        if ($routeInfo['request_data'] === null && $routeInfo['response_data'] === null) {
+            return null;
+        }
+
+        return $routeInfo;
+    }
+
+    /**
+     * Filter out unwanted HTTP methods
+     */
+    private function filterMethods(array $methods): array
+    {
+        // Remove HEAD as it's automatically added and not useful for docs
+        return array_values(array_filter($methods, fn($m) => $m !== 'HEAD'));
+    }
+
+    /**
+     * Find the request Data class from method parameters
+     */
+    private function findRequestDataClass(ReflectionMethod $method, array $dataClassNames): ?string
+    {
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if ($type === null || $type->isBuiltin()) {
+                continue;
+            }
+
+            $typeName = $type->getName();
+
+            // Check if it's one of the known Data classes
+            if (in_array($typeName, $dataClassNames)) {
+                return $typeName;
+            }
+
+            // Check if it extends Data (might not be in our scanned paths)
+            if ($this->typeResolver->isDataClass($typeName)) {
+                return $typeName;
+            }
         }
 
         return null;
     }
 
-    private function getRouteParameters(Route $route): array
+    /**
+     * Find the response Data class from return type
+     */
+    private function findResponseDataClass(ReflectionMethod $method, array $dataClassNames): ?string
+    {
+        $returnType = $method->getReturnType();
+
+        if ($returnType === null || $returnType->isBuiltin()) {
+            // Check docblock for @return annotation
+            $docblock = $this->docblockParser->parseMethod($method);
+            if ($docblock['return'] && isset($docblock['return']['type'])) {
+                $returnTypeName = ltrim($docblock['return']['type'], '\\');
+                if (in_array($returnTypeName, $dataClassNames) || $this->typeResolver->isDataClass($returnTypeName)) {
+                    return $returnTypeName;
+                }
+            }
+            return null;
+        }
+
+        $typeName = $returnType->getName();
+
+        // Check if it's one of the known Data classes
+        if (in_array($typeName, $dataClassNames)) {
+            return $typeName;
+        }
+
+        // Check if it extends Data
+        if ($this->typeResolver->isDataClass($typeName)) {
+            return $typeName;
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract route parameters with improved type inference
+     */
+    private function extractRouteParameters(Route $route, ReflectionMethod $method): array
     {
         $parameters = [];
-        
-        // Extract route parameters from URI pattern
+
+        // Extract parameters from URI pattern
         preg_match_all('/\{([^}]+)\}/', $route->uri(), $matches);
-        
+
+        // Build a map of method parameter types
+        $methodParamTypes = [];
+        foreach ($method->getParameters() as $param) {
+            $type = $param->getType();
+            if ($type && $type->isBuiltin()) {
+                $methodParamTypes[$param->getName()] = $type->getName();
+            }
+        }
+
         foreach ($matches[1] as $parameter) {
             $isOptional = str_ends_with($parameter, '?');
             $paramName = rtrim($parameter, '?');
-            
+
+            // Try to get type from method parameter first
+            $type = $methodParamTypes[$paramName] ?? $this->guessParameterType($paramName);
+
             $parameters[] = [
                 'name' => $paramName,
                 'required' => !$isOptional,
-                'type' => $this->guessParameterType($paramName),
+                'type' => $type,
+                'in' => 'path',
             ];
         }
 
         return $parameters;
     }
 
+    /**
+     * Guess parameter type based on naming conventions
+     */
     private function guessParameterType(string $paramName): string
     {
-        // Common parameter naming conventions
-        if (str_ends_with($paramName, '_id') || $paramName === 'id') {
+        // ID-like parameters
+        if ($paramName === 'id' || str_ends_with($paramName, '_id') || str_ends_with($paramName, 'Id')) {
             return 'integer';
         }
-        
-        if (in_array($paramName, ['slug', 'token', 'uuid'])) {
+
+        // UUID-like parameters
+        if (str_contains($paramName, 'uuid') || str_contains($paramName, 'Uuid')) {
             return 'string';
         }
 
-        return 'string'; // Default to string
+        // Slug-like parameters
+        if (str_contains($paramName, 'slug') || str_contains($paramName, 'Slug')) {
+            return 'string';
+        }
+
+        // Token-like parameters
+        if (str_contains($paramName, 'token') || str_contains($paramName, 'Token')) {
+            return 'string';
+        }
+
+        // Default to string
+        return 'string';
     }
 
-    private function getMethodDescription(ReflectionMethod $method): string
+    /**
+     * Extract method description from docblock
+     */
+    private function extractMethodDescription(ReflectionMethod $method): string
     {
-        $docComment = $method->getDocComment();
-        
-        if (!$docComment) {
-            return '';
-        }
-
-        // Extract description from docblock
-        preg_match('/\/\*\*\s*\n\s*\*\s*(.+?)(?:\n\s*\*\s*@|\n\s*\*\/)/s', $docComment, $matches);
-        
-        if (isset($matches[1])) {
-            // Clean up the description
-            $description = preg_replace('/\n\s*\*\s*/', ' ', $matches[1]);
-            return trim($description);
-        }
-
-        return '';
+        $docblock = $this->docblockParser->parseMethod($method);
+        return $docblock['description'] ?? '';
     }
 }

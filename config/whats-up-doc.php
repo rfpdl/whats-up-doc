@@ -8,14 +8,14 @@ return [
     | Documentation Title
     |--------------------------------------------------------------------------
     */
-    'title' => env('LARAVEL_DATA_DOC_TITLE', 'API Documentation'),
+    'title' => env('WHATS_UP_DOC_TITLE', 'API Documentation'),
 
     /*
     |--------------------------------------------------------------------------
     | Documentation Description
     |--------------------------------------------------------------------------
     */
-    'description' => env('LARAVEL_DATA_DOC_DESCRIPTION', 'Generated from Laravel Data DTOs'),
+    'description' => env('WHATS_UP_DOC_DESCRIPTION', 'Generated from Laravel Data DTOs'),
 
     /*
     |--------------------------------------------------------------------------
