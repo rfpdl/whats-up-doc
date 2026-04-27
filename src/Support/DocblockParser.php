@@ -16,15 +16,15 @@ class DocblockParser
     private const PATTERNS = [
         'description' => '/^\s*\/\*\*\s*\n\s*\*\s*([^@\n].+?)(?=\n\s*\*\s*@|\n\s*\*\/|\n\s*\*\s*\n)/s',
         'inline_description' => '/\/\*\*\s*(.+?)\s*\*\//s',
-        'tag' => '/@(\w+)(?:\s+(.*))?$/m',
-        'param' => '/@param\s+(\S+)\s+\$(\w+)(?:\s+(.*))?$/m',
-        'return' => '/@return\s+(\S+)(?:\s+(.*))?$/m',
-        'var' => '/@var\s+(\S+)(?:\s+(.*))?$/m',
-        'property' => '/@property(?:-read|-write)?\s+(\S+)\s+\$(\w+)(?:\s+(.*))?$/m',
-        'example' => '/@example\s+(.*)$/m',
-        'deprecated' => '/@deprecated(?:\s+(.*))?$/m',
-        'see' => '/@see\s+(.*)$/m',
-        'throws' => '/@throws\s+(\S+)(?:\s+(.*))?$/m',
+        'tag' => '/@(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'param' => '/@param[^\S\n]+(\S+)[^\S\n]+\$(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'return' => '/@return[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'var' => '/@var[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'property' => '/@property(?:-read|-write)?[^\S\n]+(\S+)[^\S\n]+\$(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'example' => '/@example[^\S\n]+([^\n]*?)[^\S\n]*(?:\*\/)?$/m',
+        'deprecated' => '/@deprecated(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'see' => '/@see[^\S\n]+([^\n]*?)[^\S\n]*(?:\*\/)?$/m',
+        'throws' => '/@throws[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
     ];
 
     /**

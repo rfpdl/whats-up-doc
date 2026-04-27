@@ -13,7 +13,9 @@ use Rfpdl\WhatsUpDoc\Support\AttributeReader;
 use Rfpdl\WhatsUpDoc\Support\DocblockParser;
 use Rfpdl\WhatsUpDoc\Support\ErrorCollector;
 use Rfpdl\WhatsUpDoc\Support\ScanError;
+use Rfpdl\WhatsUpDoc\Support\SchemaRegistry;
 use Rfpdl\WhatsUpDoc\Support\TypeResolver;
+use Spatie\LaravelData\Data;
 
 class DocumentationGenerator
 {
@@ -24,6 +26,7 @@ class DocumentationGenerator
         private readonly DocblockParser $docblockParser,
         private readonly AttributeReader $attributeReader,
         private readonly RouteScanner $routeScanner,
+        private readonly SchemaRegistry $schemaRegistry,
     ) {
         $this->errors = new ErrorCollector();
     }
@@ -73,21 +76,7 @@ class DocumentationGenerator
      */
     public function generateOpenApi(Collection $dataClasses, string $outputPath): void
     {
-        $documentation = $this->buildDocumentation($dataClasses);
-        $routes = $this->routeScanner->scanRoutes($dataClasses);
-
-        $openApi = [
-            'openapi' => '3.0.0',
-            'info' => [
-                'title' => config('whats-up-doc.title'),
-                'description' => config('whats-up-doc.description'),
-                'version' => '1.0.0',
-            ],
-            'paths' => $this->buildOpenApiPaths($routes, $documentation),
-            'components' => [
-                'schemas' => $this->buildOpenApiSchemas($documentation),
-            ],
-        ];
+        $openApi = $this->buildOpenApiArray($dataClasses);
 
         File::put(
             $outputPath . '/openapi.json',
@@ -96,11 +85,64 @@ class DocumentationGenerator
     }
 
     /**
-     * Build documentation structure from scanned classes
+     * Build the full OpenAPI array without writing to disk
+     */
+    public function buildOpenApiArray(Collection $dataClasses): array
+    {
+        $documentation = $this->buildDocumentation($dataClasses);
+        $routes = $this->routeScanner->scanRoutes($dataClasses);
+
+        $openApi = [
+            'openapi' => config('whats-up-doc.openapi.version', '3.1.0'),
+            'info' => $this->buildOpenApiInfo(),
+            'paths' => $this->buildOpenApiPaths($routes, $documentation),
+            'components' => [
+                'schemas' => $this->buildOpenApiSchemas($documentation),
+            ],
+        ];
+
+        $servers = config('whats-up-doc.openapi.servers', []);
+        if (!empty($servers)) {
+            $openApi['servers'] = $servers;
+        } elseif ($appUrl = config('app.url')) {
+            $openApi['servers'] = [['url' => $appUrl]];
+        }
+
+        $securitySchemes = config('whats-up-doc.openapi.security_schemes', []);
+        if (!empty($securitySchemes)) {
+            $openApi['components']['securitySchemes'] = $securitySchemes;
+        }
+
+        return $openApi;
+    }
+
+    private function buildOpenApiInfo(): array
+    {
+        $info = [
+            'title' => config('whats-up-doc.title', 'API Documentation'),
+            'description' => config('whats-up-doc.description', ''),
+            'version' => config('whats-up-doc.openapi.info_version', '1.0.0'),
+        ];
+
+        if ($contact = config('whats-up-doc.openapi.contact')) {
+            $info['contact'] = $contact;
+        }
+
+        if ($license = config('whats-up-doc.openapi.license')) {
+            $info['license'] = $license;
+        }
+
+        return $info;
+    }
+
+    /**
+     * Build documentation structure from scanned classes, discovering nested Data classes
      */
     private function buildDocumentation(Collection $dataClasses): array
     {
+        $this->schemaRegistry->clear();
         $documentation = [];
+        $maxDepth = (int) config('whats-up-doc.scan.max_nesting_depth', 10);
 
         foreach ($dataClasses as $dataClass) {
             $reflection = $dataClass['reflection'];
@@ -108,8 +150,57 @@ class DocumentationGenerator
 
             try {
                 $documentation[$className] = $this->buildClassDocumentation($reflection, $dataClass);
+                $this->schemaRegistry->register($className, $documentation[$className]);
             } catch (\Throwable $e) {
                 $this->errors->add(ScanError::reflectionFailed($className, $e));
+            }
+        }
+
+        if (config('whats-up-doc.scan.follow_nested', true)) {
+            $documentation = $this->resolveNestedSchemas($documentation, $maxDepth);
+        }
+
+        return $documentation;
+    }
+
+    /**
+     * Process the SchemaRegistry pending queue to discover and build nested Data class schemas
+     */
+    private function resolveNestedSchemas(array $documentation, int $maxDepth): array
+    {
+        $depth = 0;
+
+        while ($this->schemaRegistry->hasPending() && $depth < $maxDepth) {
+            $pending = $this->schemaRegistry->getPending();
+            $depth++;
+
+            foreach ($pending as $className) {
+                if ($this->schemaRegistry->isResolving($className)) {
+                    continue;
+                }
+
+                if (!class_exists($className)) {
+                    $this->schemaRegistry->register($className, []);
+                    continue;
+                }
+
+                $this->schemaRegistry->markResolving($className);
+
+                try {
+                    $reflection = new ReflectionClass($className);
+                    $dataClass = [
+                        'class' => $className,
+                        'reflection' => $reflection,
+                    ];
+                    $classDoc = $this->buildClassDocumentation($reflection, $dataClass);
+                    $documentation[$className] = $classDoc;
+                    $this->schemaRegistry->register($className, $classDoc);
+                } catch (\Throwable $e) {
+                    $this->errors->add(ScanError::reflectionFailed($className, $e));
+                    $this->schemaRegistry->register($className, []);
+                } finally {
+                    $this->schemaRegistry->unmarkResolving($className);
+                }
             }
         }
 
@@ -193,6 +284,16 @@ class DocumentationGenerator
             $typeInfo['nestedType'] = $collectionItemType;
         }
 
+        // Queue referenced Data classes for nested resolution
+        if ($typeInfo['isDataClass'] && $typeInfo['reference'] && !$this->schemaRegistry->has($typeInfo['reference'])) {
+            $this->schemaRegistry->queueForResolution($typeInfo['reference']);
+        }
+        if ($typeInfo['isArray'] && $typeInfo['nestedType'] && $this->typeResolver->isDataClass($typeInfo['nestedType'])) {
+            if (!$this->schemaRegistry->has($typeInfo['nestedType'])) {
+                $this->schemaRegistry->queueForResolution($typeInfo['nestedType']);
+            }
+        }
+
         return [
             'name' => $property->getName(),
             'type' => $typeInfo,
@@ -202,17 +303,24 @@ class DocumentationGenerator
             'validation' => $validationRules,
             'inputName' => $inputName,
             'outputName' => $outputName,
-            'hasDefault' => $property->hasDefaultValue(),
-            'default' => $property->hasDefaultValue() ? $property->getDefaultValue() : null,
+            'hasDefault' => $this->propertyHasDefault($property),
+            'default' => $this->propertyHasDefault($property) ? $this->getPropertyDefault($property) : null,
         ];
     }
 
     /**
      * Generate an example JSON object for a class
      */
-    private function generateExample(ReflectionClass $reflection): array
+    private function generateExample(ReflectionClass $reflection, array $visited = []): array
     {
         $example = [];
+        $className = $reflection->getName();
+
+        if (in_array($className, $visited)) {
+            return ['...' => '(circular reference)'];
+        }
+
+        $visited[] = $className;
 
         foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
             if ($property->isStatic()) {
@@ -227,9 +335,15 @@ class DocumentationGenerator
                 $typeInfo = $this->typeResolver->resolveFromProperty($property);
                 $docblock = $this->docblockParser->parseProperty($property);
 
-                // Use docblock example if available
                 if (!empty($docblock['example'])) {
                     $example[$property->getName()] = $this->parseExampleValue($docblock['example']);
+                } elseif ($typeInfo['isDataClass'] && $typeInfo['reference'] && class_exists($typeInfo['reference'])) {
+                    $nestedReflection = new ReflectionClass($typeInfo['reference']);
+                    $nestedExample = $this->generateExample($nestedReflection, $visited);
+                    $example[$property->getName()] = $typeInfo['nullable'] ? $nestedExample : $nestedExample;
+                } elseif ($typeInfo['isArray'] && $typeInfo['nestedType'] && $this->typeResolver->isDataClass($typeInfo['nestedType'])) {
+                    $nestedReflection = new ReflectionClass($typeInfo['nestedType']);
+                    $example[$property->getName()] = [$this->generateExample($nestedReflection, $visited)];
                 } else {
                     $example[$property->getName()] = $this->typeResolver->generateExampleValue($typeInfo);
                 }
@@ -278,6 +392,51 @@ class DocumentationGenerator
         return $example;
     }
 
+    private function propertyHasDefault(ReflectionProperty $property): bool
+    {
+        if ($property->hasDefaultValue()) {
+            return true;
+        }
+
+        if ($property->isPromoted()) {
+            $constructor = $property->getDeclaringClass()->getConstructor();
+            if ($constructor) {
+                foreach ($constructor->getParameters() as $param) {
+                    if ($param->getName() === $property->getName() && $param->isDefaultValueAvailable()) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function getPropertyDefault(ReflectionProperty $property): mixed
+    {
+        if ($property->hasDefaultValue()) {
+            return $property->getDefaultValue();
+        }
+
+        if ($property->isPromoted()) {
+            $constructor = $property->getDeclaringClass()->getConstructor();
+            if ($constructor) {
+                foreach ($constructor->getParameters() as $param) {
+                    if ($param->getName() === $property->getName() && $param->isDefaultValueAvailable()) {
+                        return $param->getDefaultValue();
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function isOpenApi31(): bool
+    {
+        return version_compare(config('whats-up-doc.openapi.version', '3.1.0'), '3.1.0', '>=');
+    }
+
     /**
      * Build OpenAPI paths from routes
      */
@@ -295,15 +454,20 @@ class DocumentationGenerator
             foreach ($route['methods'] as $method) {
                 $method = strtolower($method);
 
-                // Skip HEAD method
                 if ($method === 'head') {
                     continue;
                 }
 
+                $docEndpoint = $route['doc_endpoint'] ?? null;
+
+                $tags = $docEndpoint?->tags
+                    ?? ($docEndpoint?->group ? [$docEndpoint->group] : null)
+                    ?? [$this->extractRouteTag($route['uri'])];
+
                 $operation = [
                     'summary' => $route['description'] ?? '',
                     'operationId' => $route['name'] ?? "{$method}_{$route['uri']}",
-                    'tags' => [$this->extractRouteTag($route['uri'])],
+                    'tags' => $tags,
                     'responses' => [
                         '200' => [
                             'description' => 'Successful response',
@@ -311,7 +475,11 @@ class DocumentationGenerator
                     ],
                 ];
 
-                // Add parameters
+                if ($docEndpoint?->description) {
+                    $operation['description'] = $docEndpoint->description;
+                }
+
+                // Add path parameters
                 if (!empty($route['parameters'])) {
                     $operation['parameters'] = array_map(function ($param) {
                         return [
@@ -325,7 +493,26 @@ class DocumentationGenerator
                     }, $route['parameters']);
                 }
 
-                // Add request body if there's request data
+                // Merge custom parameters from #[DocParam] attributes
+                $customParams = $route['custom_params'] ?? [];
+                foreach ($customParams as $docParam) {
+                    $paramSchema = ['type' => $docParam->type];
+                    $paramEntry = [
+                        'name' => $docParam->name,
+                        'in' => $docParam->in,
+                        'required' => $docParam->required,
+                        'schema' => $paramSchema,
+                    ];
+                    if ($docParam->description) {
+                        $paramEntry['description'] = $docParam->description;
+                    }
+                    if ($docParam->example !== null) {
+                        $paramEntry['example'] = $docParam->example;
+                    }
+                    $operation['parameters'][] = $paramEntry;
+                }
+
+                // Add request body from Data class or #[DocBody]
                 if ($route['request_data'] && isset($documentation[$route['request_data']])) {
                     $schemaName = $documentation[$route['request_data']]['name'];
                     $operation['requestBody'] = [
@@ -338,9 +525,21 @@ class DocumentationGenerator
                             ],
                         ],
                     ];
+                } elseif ($customBody = $route['custom_body'] ?? null) {
+                    $operation['requestBody'] = [
+                        'required' => $customBody->required,
+                        'content' => [
+                            $customBody->mediaType => [
+                                'schema' => $customBody->schema,
+                            ],
+                        ],
+                    ];
+                    if ($customBody->description) {
+                        $operation['requestBody']['description'] = $customBody->description;
+                    }
                 }
 
-                // Add response schema if there's response data
+                // Add response from Data class
                 if ($route['response_data'] && isset($documentation[$route['response_data']])) {
                     $schemaName = $documentation[$route['response_data']]['name'];
                     $operation['responses']['200']['content'] = [
@@ -350,6 +549,33 @@ class DocumentationGenerator
                             ],
                         ],
                     ];
+                }
+
+                // Merge custom responses from #[DocResponse] attributes
+                $customResponses = $route['custom_responses'] ?? [];
+                foreach ($customResponses as $docResponse) {
+                    $statusCode = (string) $docResponse->status;
+                    $responseEntry = [
+                        'description' => $docResponse->description ?? 'Response',
+                    ];
+
+                    if ($docResponse->schema) {
+                        $responseEntry['content'] = [
+                            'application/json' => [
+                                'schema' => $docResponse->schema,
+                            ],
+                        ];
+                    } elseif ($docResponse->ref) {
+                        $responseEntry['content'] = [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => "#/components/schemas/{$docResponse->ref}",
+                                ],
+                            ],
+                        ];
+                    }
+
+                    $operation['responses'][$statusCode] = $responseEntry;
                 }
 
                 $paths[$uri][$method] = $operation;
@@ -468,7 +694,20 @@ class DocumentationGenerator
 
         // Handle nullable
         if ($typeInfo['nullable']) {
-            $schema['nullable'] = true;
+            if ($this->isOpenApi31()) {
+                if (isset($schema['type']) && is_string($schema['type'])) {
+                    $schema['type'] = [$schema['type'], 'null'];
+                } elseif (isset($schema['$ref'])) {
+                    $schema = [
+                        'oneOf' => [
+                            ['$ref' => $schema['$ref']],
+                            ['type' => 'null'],
+                        ],
+                    ] + array_diff_key($schema, ['$ref' => true]);
+                }
+            } else {
+                $schema['nullable'] = true;
+            }
         }
 
         // Handle deprecated

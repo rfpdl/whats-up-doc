@@ -7,6 +7,7 @@ namespace Rfpdl\WhatsUpDoc\Tests\Feature;
 use Orchestra\Testbench\TestCase;
 use Rfpdl\WhatsUpDoc\WhatsUpDocServiceProvider;
 use Rfpdl\WhatsUpDoc\Services\RouteScanner;
+use Rfpdl\WhatsUpDoc\Tests\Fixtures\Controllers\TestUserController;
 use Illuminate\Support\Facades\Route;
 use Spatie\LaravelData\Data;
 
@@ -31,15 +32,9 @@ class RouteIntegrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
-        // Set up test routes
-        Route::get('api/users/{id}', function (int $id): TestUserData {
-            return new TestUserData($id, 'Test User', 'test@example.com');
-        });
 
-        Route::post('api/users', function (TestUserData $userData): TestUserData {
-            return $userData;
-        });
+        Route::get('api/users/{id}', [TestUserController::class, 'show']);
+        Route::post('api/users', [TestUserController::class, 'store']);
     }
 
     public function test_route_scanner_detects_data_routes(): void
@@ -56,8 +51,7 @@ class RouteIntegrationTest extends TestCase
         $routes = $routeScanner->scanRoutes($dataClasses);
 
         $this->assertGreaterThan(0, $routes->count());
-        
-        // Check if our test routes are detected
+
         $routeUris = $routes->pluck('uri')->toArray();
         $this->assertContains('api/users/{id}', $routeUris);
         $this->assertContains('api/users', $routeUris);

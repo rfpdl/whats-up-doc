@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Rfpdl\WhatsUpDoc;
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Rfpdl\WhatsUpDoc\Commands\GenerateDocsCommand;
+use Rfpdl\WhatsUpDoc\Http\Controllers\DocumentationController;
 use Rfpdl\WhatsUpDoc\Services\DataClassScanner;
 use Rfpdl\WhatsUpDoc\Services\DocumentationGenerator;
 use Rfpdl\WhatsUpDoc\Services\RouteScanner;
 use Rfpdl\WhatsUpDoc\Support\AttributeReader;
 use Rfpdl\WhatsUpDoc\Support\DocblockParser;
+use Rfpdl\WhatsUpDoc\Support\SchemaRegistry;
 use Rfpdl\WhatsUpDoc\Support\TypeResolver;
 
 class WhatsUpDocServiceProvider extends ServiceProvider
@@ -43,6 +46,25 @@ class WhatsUpDocServiceProvider extends ServiceProvider
         }
 
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'whats-up-doc');
+
+        $this->registerRoutes();
+    }
+
+    private function registerRoutes(): void
+    {
+        if (!config('whats-up-doc.ui.enabled', true)) {
+            return;
+        }
+
+        $path = config('whats-up-doc.ui.path', 'docs/api');
+        $middleware = config('whats-up-doc.ui.middleware', ['web']);
+
+        Route::middleware($middleware)->group(function () use ($path) {
+            Route::get($path, [DocumentationController::class, 'index'])
+                ->name('whats-up-doc.index');
+            Route::get("{$path}/openapi.json", [DocumentationController::class, 'spec'])
+                ->name('whats-up-doc.spec');
+        });
     }
 
     /**
@@ -61,6 +83,10 @@ class WhatsUpDocServiceProvider extends ServiceProvider
 
         $this->app->singleton(AttributeReader::class, function () {
             return new AttributeReader();
+        });
+
+        $this->app->singleton(SchemaRegistry::class, function () {
+            return new SchemaRegistry();
         });
     }
 
@@ -89,6 +115,7 @@ class WhatsUpDocServiceProvider extends ServiceProvider
                 $app->make(DocblockParser::class),
                 $app->make(AttributeReader::class),
                 $app->make(RouteScanner::class),
+                $app->make(SchemaRegistry::class),
             );
         });
     }

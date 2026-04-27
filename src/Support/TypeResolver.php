@@ -33,7 +33,7 @@ class TypeResolver
     private array $dataClassCache = [];
 
     /**
-     * Resolve type information from a ReflectionProperty
+     * Resolve type information from a ReflectionProperty, enriched with docblock info
      */
     public function resolveFromProperty(ReflectionProperty $property): array
     {
@@ -43,7 +43,69 @@ class TypeResolver
             return $this->buildTypeInfo('mixed', 'string', true);
         }
 
-        return $this->resolveReflectionType($type);
+        $result = $this->resolveReflectionType($type);
+
+        if ($result['isArray'] && $result['nestedType'] === null) {
+            $docblockType = $this->resolveNestedTypeFromDocblock($property);
+            if ($docblockType !== null) {
+                $result['nestedType'] = $docblockType;
+                if ($this->isDataClass($docblockType)) {
+                    $result['isDataClass'] = true;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Try to resolve the nested type of an array property from its @var docblock
+     */
+    private function resolveNestedTypeFromDocblock(ReflectionProperty $property): ?string
+    {
+        $docComment = $property->getDocComment();
+        if (!$docComment) {
+            return null;
+        }
+
+        if (!preg_match('/@var\s+(\w+)\[\]/', $docComment, $matches)) {
+            return null;
+        }
+
+        $shortName = $matches[1];
+        $declaringClass = $property->getDeclaringClass();
+
+        return $this->resolveShortClassName($shortName, $declaringClass);
+    }
+
+    /**
+     * Resolve a short class name to FQCN using the declaring class's use statements
+     */
+    public function resolveShortClassName(string $shortName, ReflectionClass $declaringClass): ?string
+    {
+        $fqcn = $declaringClass->getNamespaceName() . '\\' . $shortName;
+        if (class_exists($fqcn)) {
+            return $fqcn;
+        }
+
+        $fileName = $declaringClass->getFileName();
+        if (!$fileName || !file_exists($fileName)) {
+            return null;
+        }
+
+        $content = file_get_contents($fileName);
+        if ($content === false) {
+            return null;
+        }
+
+        if (preg_match('/use\s+([^\s;]*\\\\' . preg_quote($shortName, '/') . ')\s*;/', $content, $matches)) {
+            $resolved = $matches[1];
+            if (class_exists($resolved)) {
+                return $resolved;
+            }
+        }
+
+        return class_exists($shortName) ? $shortName : null;
     }
 
     /**
@@ -102,7 +164,7 @@ class TypeResolver
             default => 'string',
         };
 
-        return $this->buildTypeInfo($typeName, $openApiType, $nullable, isBuiltin: true);
+        return $this->buildTypeInfo($typeName, $openApiType, $nullable, isBuiltin: true, isArray: $typeName === 'array');
     }
 
     /**

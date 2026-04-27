@@ -29,6 +29,18 @@ class ScanError
     ) {}
 
     /**
+     * Create a generic warning
+     */
+    public static function warning(string $message): self
+    {
+        return new self(
+            type: 'warning',
+            message: $message,
+            severity: self::SEVERITY_WARNING,
+        );
+    }
+
+    /**
      * Create an error for a class that couldn't be found
      */
     public static function classNotFound(string $className, string $file): self

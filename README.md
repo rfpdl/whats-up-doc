@@ -1,16 +1,17 @@
 # What's Up Doc
 
-Generate beautiful API documentation from your Laravel Data DTOs automatically.
+Generate API documentation from your Laravel Data DTOs automatically.
 
 ## Features
 
-- 🚀 **Zero Configuration** - Works out of the box
-- 📊 **Multiple Formats** - HTML, JSON, OpenAPI
-- 🎨 **Beautiful UI** - Clean, responsive documentation
-- ⚡ **Fast Generation** - Scans and generates docs quickly
-- 🔧 **Customizable** - Themes, colors, and branding
-- 🛣️ **Route Integration** - Auto-detects API endpoints using Laravel Data
-- 📋 **Request/Response Documentation** - Shows Data classes used in routes
+- **Nested Schema Traversal** - Automatically discovers and documents nested Data classes, even deeply nested (e.g. `FileData -> PageData[] -> DetectionData`)
+- **OpenAPI 3.1.0** - Full spec generation with proper nullable types, servers, and security schemes
+- **Interactive UI** - Browse docs at `/docs/api` with Stoplight Elements (search, try-it-out, dark mode)
+- **Multiple Formats** - HTML, JSON, and OpenAPI output
+- **Glob Scan Paths** - DDD-friendly with patterns like `app/Domains/*/DataObjects`
+- **Custom Endpoint Docs** - Document non-Data endpoints with `#[DocEndpoint]`, `#[DocParam]`, `#[DocBody]`, `#[DocResponse]` attributes
+- **Route Detection** - Auto-detects API endpoints using Laravel Data classes
+- **Validation Mapping** - Spatie validation attributes become OpenAPI constraints
 
 ## Installation
 
@@ -24,60 +25,61 @@ composer require rfpdl/whats-up-doc
 # Generate HTML documentation
 php artisan data-doc:generate
 
-# Generate JSON schema
-php artisan data-doc:generate --format=json
-
 # Generate OpenAPI specification
 php artisan data-doc:generate --format=openapi
+
+# Generate JSON schema
+php artisan data-doc:generate --format=json
 
 # Custom output directory
 php artisan data-doc:generate --output=/path/to/docs
 ```
 
-## Configuration
+Or visit `/docs/api` in your browser for the interactive UI (enabled by default).
 
-Publish the configuration file:
+## Configuration
 
 ```bash
 php artisan vendor:publish --provider="Rfpdl\WhatsUpDoc\WhatsUpDocServiceProvider" --tag="config"
 ```
-
-### Configuration Options
 
 ```php
 return [
     'title' => 'My API Documentation',
     'description' => 'Generated from Laravel Data DTOs',
     'output_path' => storage_path('app/docs'),
+
+    // Supports glob patterns for DDD layouts
     'scan_paths' => [
-        app_path('Data'),
+        app_path('Domains/*/DataObjects'),
     ],
-    'route_prefixes' => [
-        'api/v1',
-        'api',
+
+    'route_prefixes' => ['api'],
+
+    'scan' => [
+        'follow_nested' => true,
+        'max_nesting_depth' => 10,
     ],
-    'routes' => [
+
+    'openapi' => [
+        'version' => '3.1.0',
+        'servers' => [],
+        'security_schemes' => [],
+    ],
+
+    'ui' => [
         'enabled' => true,
-        'include_middleware' => false,
-        'group_by_prefix' => true,
-    ],
-    'template' => [
-        'theme' => 'default',
-        'primary_color' => '#3b82f6',
-        'logo_url' => null,
+        'path' => 'docs/api',
+        'middleware' => ['web'],
     ],
 ];
 ```
 
-## Usage Example
+## Usage
 
-Given a Laravel Data class:
+### Data Classes
 
 ```php
-<?php
-
-namespace App\Data;
-
 use Spatie\LaravelData\Data;
 
 /**
@@ -86,105 +88,56 @@ use Spatie\LaravelData\Data;
 class UserData extends Data
 {
     public function __construct(
-        /** User's unique identifier */
         public int $id,
-        
-        /** User's full name */
         public string $name,
-        
-        /** User's email address */
         public string $email,
-        
-        /** User's profile picture URL */
-        public ?string $avatar = null,
+        public ?AddressData $address = null,
+        /** @var RoleData[] */
+        public array $roles = [],
     ) {}
 }
 ```
 
-The generated documentation will include:
-- Property types and descriptions
-- Nullable indicators
-- JSON examples
-- Clean, searchable interface
+Nested classes like `AddressData` and `RoleData` are automatically discovered and included in the OpenAPI spec with proper `$ref` links.
 
-## Route Integration
-
-What's Up Doc automatically detects API routes that use Laravel Data classes and generates endpoint documentation.
-
-### Controller Example
+### Route Detection
 
 ```php
-<?php
-
-namespace App\Http\Controllers\Api;
-
-use App\Data\UserData;
-use App\Data\CreateUserData;
-
 class UserController extends Controller
 {
-    /**
-     * Get a user by ID
-     */
-    public function show(int $id): UserData
-    {
-        // Your implementation
-    }
+    public function show(int $id): UserData { /* ... */ }
+    public function store(CreateUserData $data): UserData { /* ... */ }
+}
+```
 
-    /**
-     * Create a new user
-     */
-    public function store(CreateUserData $userData): UserData
+Routes using Data classes are automatically documented with request/response schemas.
+
+### Custom Endpoint Documentation
+
+For endpoints that don't use Laravel Data:
+
+```php
+use Rfpdl\WhatsUpDoc\Attributes\{DocEndpoint, DocParam, DocBody, DocResponse};
+
+class WebhookController extends Controller
+{
+    #[DocEndpoint(summary: 'Receive Stripe webhook', group: 'Webhooks')]
+    #[DocParam(name: 'signature', in: 'header', type: 'string', required: true)]
+    #[DocBody(schema: ['type' => 'object', 'properties' => ['event' => ['type' => 'string']]])]
+    #[DocResponse(status: 200, description: 'Webhook processed')]
+    #[DocResponse(status: 400, description: 'Invalid payload')]
+    public function handleStripe(Request $request): JsonResponse
     {
-        // Your implementation
+        // ...
     }
 }
 ```
 
-### Route Definition
+## Requirements
 
-```php
-Route::prefix('api/v1')->group(function () {
-    Route::get('/users/{id}', [UserController::class, 'show']);
-    Route::post('/users', [UserController::class, 'store']);
-});
-```
-
-### Generated Documentation
-
-The package will automatically:
-- Detect routes using Laravel Data classes
-- Show HTTP methods and endpoints
-- Document request/response Data classes
-- Extract route parameters
-- Include controller method descriptions
-
-## Roadmap
-
-### Phase 1 (Complete - MVP)
-- [x] Basic Laravel Data scanning
-- [x] HTML documentation generation
-- [x] JSON schema export
-- [x] OpenAPI specification
-- [x] Configurable themes
-
-### Phase 2 (Current - Enhanced Features)
-- [x] Route integration (auto-detect endpoints using Data classes)
-- [x] Request/Response documentation
-- [x] Route parameter extraction
-- [ ] Webhook documentation
-- [ ] Custom annotations support
-- [ ] Multiple theme options
-
-### Phase 3 (Future)
-- [ ] Interactive API testing
-- [ ] Postman collection export
-- [ ] Custom templates
-- [ ] Team collaboration features
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- PHP 8.2+
+- Laravel 10, 11, or 12
+- Spatie Laravel Data 3 or 4
 
 ## License
 

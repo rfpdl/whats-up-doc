@@ -14,8 +14,7 @@ class GenerateDocsCommand extends Command
 {
     protected $signature = 'data-doc:generate
                             {--output= : Output directory}
-                            {--format=html : Output format (html, json, openapi)}
-                            {--verbose : Show detailed output including warnings}';
+                            {--format=html : Output format (html, json, openapi)}';
 
     protected $description = 'Generate API documentation from Laravel Data classes';
 

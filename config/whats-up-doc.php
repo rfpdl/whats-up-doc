@@ -28,8 +28,10 @@ return [
     |--------------------------------------------------------------------------
     | Data Class Paths
     |--------------------------------------------------------------------------
-    | Directories to scan for Laravel Data classes
+    | Directories to scan for Laravel Data classes.
+    | Glob patterns are supported for DDD layouts.
     */
+    // Example: app_path('Domains') . '/' . '*' . '/DataObjects'
     'scan_paths' => [
         app_path('Data'),
     ],
@@ -65,6 +67,41 @@ return [
     'exclude_patterns' => [
         '*Test*',
         '*Stub*',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Scan Settings
+    |--------------------------------------------------------------------------
+    */
+    'scan' => [
+        'follow_nested' => true,
+        'max_nesting_depth' => 10,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | OpenAPI Settings
+    |--------------------------------------------------------------------------
+    */
+    'openapi' => [
+        'version' => '3.1.0',
+        'info_version' => '1.0.0',
+        'servers' => [],
+        'security_schemes' => [],
+        'contact' => null,
+        'license' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Interactive UI Settings
+    |--------------------------------------------------------------------------
+    */
+    'ui' => [
+        'enabled' => true,
+        'path' => 'docs/api',
+        'middleware' => ['web'],
     ],
 
     /*

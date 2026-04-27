@@ -33,10 +33,11 @@ class DataClassScanner
 
         $scanPaths = config('whats-up-doc.scan_paths', [app_path('Data')]);
         $excludePatterns = config('whats-up-doc.exclude_patterns', []);
+        $expandedPaths = $this->expandScanPaths($scanPaths);
 
         $scannedFiles = 0;
 
-        foreach ($scanPaths as $path) {
+        foreach ($expandedPaths as $path) {
             if (!File::exists($path)) {
                 $this->errors->add(ScanError::fileNotReadable($path));
                 continue;
@@ -88,6 +89,38 @@ class DataClassScanner
     }
 
     /**
+     * Expand scan paths, resolving glob patterns to concrete directories
+     */
+    private function expandScanPaths(array $paths): array
+    {
+        $expanded = [];
+
+        foreach ($paths as $path) {
+            if ($this->isGlobPattern($path)) {
+                $matches = glob($path, GLOB_ONLYDIR);
+
+                if (empty($matches)) {
+                    $this->errors->add(ScanError::warning(
+                        "Glob pattern '{$path}' matched no directories"
+                    ));
+                    continue;
+                }
+
+                array_push($expanded, ...$matches);
+            } else {
+                $expanded[] = $path;
+            }
+        }
+
+        return array_unique($expanded);
+    }
+
+    private function isGlobPattern(string $path): bool
+    {
+        return str_contains($path, '*') || str_contains($path, '?') || str_contains($path, '[');
+    }
+
+    /**
      * Process a single PHP file
      */
     private function processFile(string $filePath, array $excludePatterns): ?array
@@ -128,7 +161,7 @@ class DataClassScanner
         }
 
         // Extract class name (handles class, abstract class, final class, readonly class)
-        if (preg_match('/(?:abstract\s+|final\s+|readonly\s+)*class\s+(\w+)/', $content, $classMatches)) {
+        if (preg_match('/^\s*(?:(?:abstract|final|readonly)\s+)*class\s+(\w+)/m', $content, $classMatches)) {
             return $namespace . '\\' . $classMatches[1];
         }
 

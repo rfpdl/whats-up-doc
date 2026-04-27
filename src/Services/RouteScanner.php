@@ -10,6 +10,10 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionMethod;
+use Rfpdl\WhatsUpDoc\Attributes\DocBody;
+use Rfpdl\WhatsUpDoc\Attributes\DocEndpoint;
+use Rfpdl\WhatsUpDoc\Attributes\DocParam;
+use Rfpdl\WhatsUpDoc\Attributes\DocResponse;
 use Rfpdl\WhatsUpDoc\Support\DocblockParser;
 use Rfpdl\WhatsUpDoc\Support\ErrorCollector;
 use Rfpdl\WhatsUpDoc\Support\ScanError;
@@ -107,16 +111,14 @@ class RouteScanner
     }
 
     /**
-     * Analyze a single route for Data class usage
+     * Analyze a single route for Data class usage or custom doc attributes
      */
     private function analyzeRoute(Route $route, array $dataClassNames): ?array
     {
         $action = $route->getAction();
         $controllerAction = $action['controller'];
 
-        // Handle different controller action formats
         if (!str_contains($controllerAction, '@')) {
-            // Invokable controller
             $controllerClass = $controllerAction;
             $method = '__invoke';
         } else {
@@ -135,7 +137,11 @@ class RouteScanner
 
         $methodReflection = $controllerReflection->getMethod($method);
 
-        // Build basic route info
+        $docEndpoint = $this->getDocEndpoint($methodReflection);
+        if ($docEndpoint && $docEndpoint->hidden) {
+            return null;
+        }
+
         $routeInfo = [
             'uri' => $route->uri(),
             'methods' => $this->filterMethods($route->methods()),
@@ -145,30 +151,70 @@ class RouteScanner
             'parameters' => $this->extractRouteParameters($route, $methodReflection),
             'request_data' => null,
             'response_data' => null,
-            'description' => $this->extractMethodDescription($methodReflection),
+            'description' => $docEndpoint?->summary ?: $this->extractMethodDescription($methodReflection),
             'middleware' => config('whats-up-doc.routes.include_middleware', false)
                 ? $route->middleware()
                 : [],
+            'custom_params' => $this->getDocParams($methodReflection),
+            'custom_body' => $this->getDocBody($methodReflection),
+            'custom_responses' => $this->getDocResponses($methodReflection),
+            'doc_endpoint' => $docEndpoint,
         ];
 
-        // Find request Data class (from method parameters)
         $requestData = $this->findRequestDataClass($methodReflection, $dataClassNames);
         if ($requestData) {
             $routeInfo['request_data'] = $requestData;
         }
 
-        // Find response Data class (from return type)
         $responseData = $this->findResponseDataClass($methodReflection, $dataClassNames);
         if ($responseData) {
             $routeInfo['response_data'] = $responseData;
         }
 
-        // Only include routes that use Laravel Data classes
-        if ($routeInfo['request_data'] === null && $routeInfo['response_data'] === null) {
+        $hasDataClasses = $routeInfo['request_data'] !== null || $routeInfo['response_data'] !== null;
+        $hasCustomDocs = $docEndpoint !== null;
+
+        if (!$hasDataClasses && !$hasCustomDocs) {
             return null;
         }
 
         return $routeInfo;
+    }
+
+    private function getDocEndpoint(ReflectionMethod $method): ?DocEndpoint
+    {
+        $attrs = $method->getAttributes(DocEndpoint::class);
+
+        return !empty($attrs) ? $attrs[0]->newInstance() : null;
+    }
+
+    private function getDocParams(ReflectionMethod $method): array
+    {
+        $params = [];
+
+        foreach ($method->getAttributes(DocParam::class) as $attr) {
+            $params[] = $attr->newInstance();
+        }
+
+        return $params;
+    }
+
+    private function getDocBody(ReflectionMethod $method): ?DocBody
+    {
+        $attrs = $method->getAttributes(DocBody::class);
+
+        return !empty($attrs) ? $attrs[0]->newInstance() : null;
+    }
+
+    private function getDocResponses(ReflectionMethod $method): array
+    {
+        $responses = [];
+
+        foreach ($method->getAttributes(DocResponse::class) as $attr) {
+            $responses[] = $attr->newInstance();
+        }
+
+        return $responses;
     }
 
     /**
