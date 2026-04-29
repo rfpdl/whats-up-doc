@@ -475,6 +475,29 @@ class DocumentationGenerator
                     ],
                 ];
 
+                // Use @response PHPDoc status code if present
+                if (isset($route['response_status']) && $route['response_status'] != 200) {
+                    $statusCode = (string) $route['response_status'];
+                    $responseEntry = [
+                        'description' => 'Response',
+                    ];
+                    
+                    // Auto-link schema from response_data
+                    if ($route['response_data'] && isset($documentation[$route['response_data']])) {
+                        $schemaName = $documentation[$route['response_data']]['name'];
+                        $responseEntry['content'] = [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => "#/components/schemas/{$schemaName}",
+                                ],
+                            ],
+                        ];
+                    }
+                    
+                    $operation['responses'][$statusCode] = $responseEntry;
+                    unset($operation['responses']['200']);
+                }
+
                 if ($docEndpoint?->description) {
                     $operation['description'] = $docEndpoint->description;
                 }

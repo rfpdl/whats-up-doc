@@ -19,6 +19,7 @@ class DocblockParser
         'tag' => '/@(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
         'param' => '/@param[^\S\n]+(\S+)[^\S\n]+\$(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
         'return' => '/@return[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
+        'response' => '/@response[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
         'var' => '/@var[^\S\n]+(\S+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
         'property' => '/@property(?:-read|-write)?[^\S\n]+(\S+)[^\S\n]+\$(\w+)(?:[^\S\n]+([^\n]*?))?[^\S\n]*(?:\*\/)?$/m',
         'example' => '/@example[^\S\n]+([^\n]*?)[^\S\n]*(?:\*\/)?$/m',
@@ -82,6 +83,7 @@ class DocblockParser
             'description' => $this->extractDescription($docComment),
             'params' => $this->extractParams($docComment),
             'return' => $this->extractReturn($docComment),
+            'response' => $this->extractResponse($docComment),
             'throws' => $this->extractThrows($docComment),
             'deprecated' => $this->extractDeprecated($docComment),
             'tags' => $this->extractAllTags($docComment),
@@ -158,6 +160,22 @@ class DocblockParser
             return [
                 'type' => $match[1],
                 'description' => trim($match[2] ?? ''),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract @response tag (e.g., @response 201 BookData)
+     */
+    public function extractResponse(string $docComment): ?array
+    {
+        if (preg_match(self::PATTERNS['response'], $docComment, $match)) {
+            return [
+                'status' => (int) $match[1],
+                'type' => $match[2] ?? null,
+                'description' => trim($match[3] ?? ''),
             ];
         }
 
@@ -371,6 +389,7 @@ class DocblockParser
             'description' => '',
             'params' => [],
             'return' => null,
+            'response' => null,
             'throws' => [],
             'deprecated' => null,
             'tags' => [],

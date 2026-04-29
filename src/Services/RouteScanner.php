@@ -171,6 +171,12 @@ class RouteScanner
             $routeInfo['response_data'] = $responseData;
         }
 
+        // Check for @response PHPDoc tag for status code
+        $responseStatus = $this->getResponseStatusCode($methodReflection);
+        if ($responseStatus) {
+            $routeInfo['response_status'] = $responseStatus;
+        }
+
         $hasDataClasses = $routeInfo['request_data'] !== null || $routeInfo['response_data'] !== null;
         $hasCustomDocs = $docEndpoint !== null;
         $hasResponses = !empty($routeInfo['custom_responses']);
@@ -265,11 +271,20 @@ class RouteScanner
      */
     private function findResponseDataClass(ReflectionMethod $method, array $dataClassNames): ?string
     {
+        // First check @response tag (e.g., @response 201 BookData)
+        $docblock = $this->docblockParser->parseMethod($method);
+        if (isset($docblock['response']['type'])) {
+            $responseType = ltrim($docblock['response']['type'], '\\');
+            if (in_array($responseType, $dataClassNames) || $this->typeResolver->isDataClass($responseType)) {
+                return $responseType;
+            }
+        }
+
+        // Then check @return tag
         $returnType = $method->getReturnType();
 
         if ($returnType === null || $returnType->isBuiltin()) {
             // Check docblock for @return annotation
-            $docblock = $this->docblockParser->parseMethod($method);
             if ($docblock['return'] && isset($docblock['return']['type'])) {
                 $returnTypeName = ltrim($docblock['return']['type'], '\\');
                 if (in_array($returnTypeName, $dataClassNames) || $this->typeResolver->isDataClass($returnTypeName)) {
@@ -291,6 +306,20 @@ class RouteScanner
             return $typeName;
         }
 
+        return null;
+    }
+
+    /**
+     * Get response status code from @response PHPDoc tag
+     */
+    private function getResponseStatusCode(ReflectionMethod $method): ?int
+    {
+        $docblock = $this->docblockParser->parseMethod($method);
+        
+        if (isset($docblock['response']['status'])) {
+            return $docblock['response']['status'];
+        }
+        
         return null;
     }
 
