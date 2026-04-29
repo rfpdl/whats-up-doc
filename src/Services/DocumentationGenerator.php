@@ -553,6 +553,7 @@ class DocumentationGenerator
 
                 // Merge custom responses from #[DocResponse] attributes
                 $customResponses = $route['custom_responses'] ?? [];
+                $hasReplace = false;
                 foreach ($customResponses as $docResponse) {
                     $statusCode = (string) $docResponse->status;
                     $responseEntry = [
@@ -576,6 +577,15 @@ class DocumentationGenerator
                     }
 
                     $operation['responses'][$statusCode] = $responseEntry;
+
+                    if ($docResponse->replace) {
+                        $hasReplace = true;
+                    }
+                }
+
+                // If replace mode is enabled, remove default 200 response
+                if ($hasReplace) {
+                    unset($operation['responses']['200']);
                 }
 
                 $paths[$uri][$method] = $operation;

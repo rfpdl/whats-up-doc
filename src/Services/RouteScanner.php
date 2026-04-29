@@ -173,8 +173,14 @@ class RouteScanner
 
         $hasDataClasses = $routeInfo['request_data'] !== null || $routeInfo['response_data'] !== null;
         $hasCustomDocs = $docEndpoint !== null;
+        $hasResponses = !empty($routeInfo['custom_responses']);
 
-        if (!$hasDataClasses && !$hasCustomDocs) {
+        // Keep routes that either:
+        // 1. Have Data classes
+        // 2. Have custom DocEndpoint
+        // 3. Have custom responses (DocResponse attributes)
+        // 4. Or are explicitly included via config
+        if (!$hasDataClasses && !$hasCustomDocs && !$hasResponses) {
             return null;
         }
 

@@ -14,5 +14,6 @@ class DocResponse
         public readonly ?string $description = null,
         public readonly ?array $schema = null,
         public readonly ?string $ref = null,
+        public readonly bool $replace = false,
     ) {}
 }
