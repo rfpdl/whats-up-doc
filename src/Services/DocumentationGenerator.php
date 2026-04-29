@@ -542,13 +542,30 @@ class DocumentationGenerator
                 // Add response from Data class
                 if ($route['response_data'] && isset($documentation[$route['response_data']])) {
                     $schemaName = $documentation[$route['response_data']]['name'];
-                    $operation['responses']['200']['content'] = [
-                        'application/json' => [
-                            'schema' => [
-                                '$ref' => "#/components/schemas/{$schemaName}",
+                    
+                    // Link schema to default 200 response
+                    if (isset($operation['responses']['200'])) {
+                        $operation['responses']['200']['content'] = [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => "#/components/schemas/{$schemaName}",
+                                ],
                             ],
-                        ],
-                    ];
+                        ];
+                    }
+                    
+                    // Also link schema to custom status code responses (201, 204, etc.)
+                    foreach ($operation['responses'] as $code => $response) {
+                        if ($code != '200' && !isset($response['content'])) {
+                            $operation['responses'][$code]['content'] = [
+                                'application/json' => [
+                                    'schema' => [
+                                        '$ref' => "#/components/schemas/{$schemaName}",
+                                    ],
+                                ],
+                            ];
+                        }
+                    }
                 }
 
                 // Merge custom responses from #[DocResponse] attributes
@@ -560,7 +577,17 @@ class DocumentationGenerator
                         'description' => $docResponse->description ?? 'Response',
                     ];
 
-                    if ($docResponse->schema) {
+                    // Auto-link schema from response_data if not explicitly provided
+                    if (!$docResponse->schema && !$docResponse->ref && $route['response_data'] && isset($documentation[$route['response_data']])) {
+                        $schemaName = $documentation[$route['response_data']]['name'];
+                        $responseEntry['content'] = [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => "#/components/schemas/{$schemaName}",
+                                ],
+                            ],
+                        ];
+                    } elseif ($docResponse->schema) {
                         $responseEntry['content'] = [
                             'application/json' => [
                                 'schema' => $docResponse->schema,
@@ -580,6 +607,29 @@ class DocumentationGenerator
 
                     if ($docResponse->replace) {
                         $hasReplace = true;
+                    }
+                }
+                
+                // Auto-link schema to custom responses that don't have one
+                if ($route['response_data'] && isset($documentation[$route['response_data']])) {
+                    $schemaName = $documentation[$route['response_data']]['name'];
+                    foreach ($operation['responses'] as $code => &$resp) {
+                        if (!isset($resp['content'])) {
+                            $refSchema = $schemaName;
+                            // If custom DocResponse has ref, prefer that
+                            foreach ($customResponses as $docResponse) {
+                                if ((string)$docResponse->status === $code && $docResponse->ref) {
+                                    $refSchema = $docResponse->ref;
+                                }
+                            }
+                            $resp['content'] = [
+                                'application/json' => [
+                                    'schema' => [
+                                        '$ref' => "#/components/schemas/{$refSchema}",
+                                    ],
+                                ],
+                            ];
+                        }
                     }
                 }
 
